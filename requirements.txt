@@ -1,0 +1,19 @@
+FLASK==3.0.3
+flask-cors==4.0.1
+chardet==5.2.0
+langchain==0.2.7
+langchain-core==0.2.22
+langchain-community==0.2.7
+langchain-chroma==0.1.2
+langchain-groq==0.1.6
+nltk==3.8.1
+chroma==0.2.0
+chromadb==0.5.3
+pandas
+pypdf==4.3.0
+openai==1.36.0
+langchain-openai==0.1.17
+tiktoken==0.7.0
+PyPDF2 == 3.0.1
+pinecone-client==5.0.0
+langgraph==0.1.17
