@@ -69,18 +69,16 @@ def get_document(doc_id):
 @app.route("/ask_your_question", methods=["POST"]) # API for retrieving the response for the question
 def ask_your_question():
     question = request.json.get('question')
+    userId = request.json.get('user_id')
+    sessionId = request.json.get('session_id')
     from langchain.chains import create_retrieval_chain
     from langchain.chains.combine_documents import create_stuff_documents_chain
     # retriever = chromadb.as_retriever()
-    retriever = chromadb.as_retriever(
-        search_type="mmr",  # Example search type, adjust as needed
-        search_kwargs={
-            "filters": {
-                "user_id": "001",
-                "session_id": "session1"
-            }
-        }
-    )
+    fit ={'userId': userId}
+    fit2 = {'uploadId': sessionId}
+
+    
+    retriever = chromadb.as_retriever(search_kwargs={"filter": fit, "filter": fit2})
     system_prompt = (
         "You are a medical assistant AI with access to a patient's medical records."
         "Your role is to provide detailed and accurate responses based on the patient's medical records."
@@ -111,7 +109,8 @@ def ask_your_question():
     # for document in context:
     #     print(document.metadata)
     answer = response.get("answer", "")
-    return jsonify({"response" : answer}), 200
+    metda = response.get("metadata", "")
+    return jsonify({"response" : answer, "metadata": metda}), 200
 
 #---------------------Using Custom Agents and Tools for nlp headers attributes -----------------------------------------------------------------
 from langchain_openai import ChatOpenAI
@@ -656,4 +655,4 @@ if __name__ == "__main__":
     # from document_loader import text_document_loader
     # chromadb, embedding_model, docs = text_document_loader()
     # print("Got Chromadb, Embedding model and docs in return to Chroma DB Flask")
-    app.run(host='0.0.0.0', port=9000) # Run the app on port 5000 for chromadb analysis and retrieval as well
+    app.run(host='0.0.0.0', port=2000) # Run the app on port 5000 for chromadb analysis and retrieval as well
