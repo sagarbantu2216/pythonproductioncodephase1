@@ -10,6 +10,10 @@ from langchain.chains.combine_documents import create_stuff_documents_chain
 import os
 from langchain_chroma import Chroma
 import chardet
+from flask_cors import CORS
+from langchain.chains import ConversationalRetrievalChain
+from langchain.memory import ConversationBufferMemory 
+
 
 
 # Load environment variables from .env file
@@ -18,6 +22,7 @@ load_dotenv()
 
 # Initialize Flask app
 app = Flask(__name__)
+CORS(app)
 app.config['UPLOAD_FOLDER'] = 'uploads/'
 
 # Initialize the text splitter
@@ -51,6 +56,7 @@ def upload_files():
         for file in files:
             filename = secure_filename(file.filename)
             file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+            file_name = file.filename
             file.save(file_path)
 
             text_content = ""
@@ -82,7 +88,7 @@ def upload_files():
             openai_embeddings = OpenAIEmbeddings(
                 api_key=os.getenv('OPENAI_API_KEY'))
 
-            document = Document(page_content=text_content, metadata={'userId': user_id, 'uploadId': upload_id})
+            document = Document(page_content=text_content, metadata={'userId': user_id, 'uploadId': upload_id, "source" : file_name })
             split_docs = splitter.split_documents([document])
 
             vector_store = Chroma.from_documents(split_docs, openai_embeddings)
@@ -139,7 +145,7 @@ def ask_question():
         
         print (f"Response : {response}")
 
-        return jsonify(f"Response : {response}"), 200
+        return jsonify(response['answer']), 200
 
     except Exception as e:
         print(f"Error processing question: {e}")
@@ -483,11 +489,15 @@ def format_problem_with_schema(problem: str) -> dict:
         {"role": "system", "content": system_prompt3},
         {"role": "user", "content": prompt}
     ]
-    openai_api_key = os.getenv('OPENAI_API_KEY')
-    llm3 = ChatOpenAI(model="gpt-4o",
-                      api_key=openai_api_key,
-                      temperature=0,
-                      max_tokens=4000)  
+    # openai_api_key = os.getenv('OPENAI_API_KEY')
+    # llm3 = ChatOpenAI(model="gpt-4o",
+    #                   api_key=openai_api_key,
+    #                   temperature=0,
+    #                   max_tokens=4000)  
+    from langchain_groq import ChatGroq
+    groq_api_key = os.getenv("GROQ_API_KEY")
+    llm3 = ChatGroq(groq_api_key=groq_api_key, model='Llama3-70b-8192', temperature=0.1, max_tokens=8000) # groq model
+
     response = llm3.invoke(chat_messages)
     return response
  
@@ -551,40 +561,131 @@ def format_medical_problems():
     print("NLP response schema created successfully!!")
     return jsonify(result), 200
 
- 
-# @app.route("/get_nlp_schema", methods=["POST"])
-# def format_medical_problems():
-#     print(" 1.Entered into format_medical_problems hit API is called")
-#     import json
-#     list  = request.json.get("Problem List", [])
-#     print(f"List: {list}")
-#     # problems = final_result.get("problems", [])
-#     output_data = {
-#     "problems": list["Problem List"]
-#         }
+@app.route("/summarize", methods=["POST"])
+def get_summarization():
+    data = request.get_json()
+    question = data.get('question')
+    user_id = data.get('userId')
+    upload_id = data.get('uploadId')
+    vector_store = getattr(app, 'vector_store', None)
 
-#     for medication, instruction in list.items():
-#         if medication != "Problem List":
-#             output_data["problems"].append(f"{medication} {instruction}")
-#     final_list =json.dumps(output_data, indent=2)
-#     print(final_list)
-#     problems=final_list
-#     print(f"Problems: {problems}")
-#     responses = []
-#     # for problem in problems:
-#     #     response = agent_schema.invoke({"input": problem})
-#     #     # print(f"Response: {response}")
-#     #     responses.append(response.get("answer", ""))
-#     # result = []
-#     # for response in responses:
-#     #     content = response.content
-#     #     cleaned_response = content.replace("```json", "").replace("```", "").strip()
-#     #     # print(cleaned_response)
-#     #     result.append(json.loads(cleaned_response))
-#     print("End of format_medical_problems hit API is called")
-#     print("NLP response schema created successfully!!")
-#     return jsonify("result"), 200
+    if not question or not user_id or not upload_id:
+        return "Missing question, userId, or uploadId in the request body.", 400
 
+    if vector_store is None:
+        return "No documents uploaded for context.", 400
+    
+    fit ={'userId': user_id}
+    fit2 = {'uploadId': upload_id}
+
+    try:
+        retriever3 = vector_store.as_retriever(search_kwargs={"filter": fit, "filter": fit2})
+
+        # Ensure the prompt template is correctly formatted
+        prompt_template = ChatPromptTemplate.from_template(
+        """
+        You are an advanced AI language model specialized in deep document analysis and comprehensive summarization.
+        I have a set of documents that contain important information relevant to the following question: "{input}".
+    
+        Based on the context retrieved from the documents, provide an in-depth and exhaustive summary that:
+        1. **Thoroughly examines** all main ideas, sections, sub-sections, and supporting details relevant to the question, ensuring nothing is overlooked.
+        2. **Analyzes and interprets** critical information, highlighting key details and their implications, including any contradictions or inconsistencies within the documents.
+        3. **Identifies and discusses** patterns, relationships, correlations, and any underlying themes, and explains their relevance to the question.
+        4. **Explores nuances** and subtle points that may be crucial for a comprehensive understanding, including potential biases, assumptions, or gaps in the information.
+        5. **Evaluates the significance** of each piece of information in relation to the overall context, drawing connections between different parts of the documents.
+        6. **Includes contextual background** or references where necessary to ensure the summary is fully informed and well-rounded.
+        7. **Presents the summary in a detailed, logical, and organized manner**, ensuring clarity while addressing every aspect of the question comprehensively.
+
+        Context from the documents:
+        {context}
+
+        Provide the detailed and exhaustive summary below:
+        """
+        )
+        # Initialize the LLM model (OpenAI in this case)
+        from langchain_groq import ChatGroq
+        groq_api_key = os.getenv("GROQ_API_KEY")
+        llm = ChatGroq(groq_api_key=groq_api_key, model='Llama3-70b-8192', temperature=0.1, max_tokens=8000) # groq model
+
+        # Create the document chain and retrieval chain correctly
+        document_chain = create_stuff_documents_chain(llm,prompt_template)
+        retrieval_chain = create_retrieval_chain(retriever3,document_chain)
+
+        # Invoke the chain with the question and context
+        response = retrieval_chain.invoke({'input': question})
+        
+        print (f"Response : {response}")
+
+        return jsonify(response['answer']), 200
+
+    except Exception as e:
+        print(f"Error processing question: {e}")
+        return f"Error processing question: {e}", 500
+    
+  #---------------------Using Custom Agents and Tools for nlp headers attributes -----------------------------------------------------------------
+@app.route('/chronological_order', methods=['POST'])
+def arrange_chronologically():
+    data = request.get_json()
+    userid = data.get('userId')
+    sessionid = data.get('uploadId')
+    vector_store = getattr(app, 'vector_store', None)
+    section_names = [
+                    "Problem List","Medical History","Medications","Social History","Surgical History",
+                    "Family History","Vital Signs","Lab Results","Imaging Results","Pathology Reports"
+                    ]
+    res_ans_dict = {} # list to store the response['answers'] from the model
+    for section_name in section_names:
+        query = f"""Given a collection of electronic health records (EHR) stored as documents, I am working on 
+                    organizing the entries within the EHR data for the section "{section_name}" chronologically,
+                    to facilitate easy access and understanding. The goal is to list the most recent entries first.
+                    For this section, please provide a structured summary that includes at least 10 entries, 
+                    if available. Each entry must be accompanied by a date to indicate when it was recorded or 
+                    updated. This organization is crucial for creating a clear, chronological narrative of the patient's 
+                    health history based on the available data.Additionally, it is important to identify and include 
+                    the source document's name (either a PDF or a text file) from which each entry is derived. 
+                    This will aid in tracing the information back to its original context if needed.Could you 
+                    assist by processing the uploaded documents, extracting the relevant information for 
+                    "{section_name}", and organizing it as requested? Please ensure to maintain accuracy and 
+                    clarity in the chronological arrangement and presentation of the data."""
+        # global conversation_chain
+        # if conversation_chain is None:
+        #     return jsonify({'error': 'Conversation chain not initialized'}), 500
+        # response = conversation_chain({'question': query, 'userId': userid, 'uploadId': sessionid})  
+        # from langchain_openai import ChatOpenAI
+        # openai_api_key = os.getenv('OPENAI_API_KEY')
+        # llm = ChatOpenAI(model="gpt-4-1106-preview",api_key=openai_api_key,temperature = 0)
+        from langchain_groq import ChatGroq
+        groq_api_key = os.getenv("GROQ_API_KEY")
+        llm = ChatGroq(groq_api_key=groq_api_key, model='Llama3-70b-8192', temperature=0.1) # groq model
+
+        retriever = None
+        fit ={'userId': userid}
+        fit2 = {'uploadId': sessionid}
+        # use_new_groq_api_key() # Function to use a new GROQ API key
+        memory = ConversationBufferMemory(memory_key='chat_history',output_key='answer', return_messages=True)
+        retriever=vector_store.as_retriever(search_kwargs={"filter": fit, "filter": fit2})
+        conversation_chain = ConversationalRetrievalChain.from_llm(
+        llm=llm,
+        retriever = retriever,
+        return_source_documents=True,
+        memory=memory
+        )
+        response = conversation_chain({'question': query})
+        # filtered_response = {'answer': '', 'source_documents': []}  
+        # Assuming you want to store the response in a dictionary
+        res_ans_dict[section_name] = response
+
+    # Convert the response dictionary to a JSON serializable format
+    serializable_response = {section: {
+                                'answer': res_ans_dict[section].get('answer'),
+                                'source_documents': [
+                                    {'source': doc.metadata.get('source'), 'content': doc.page_content}
+                                    for doc in res_ans_dict[section].get('source_documents', [])
+                                ]
+                            }
+                            for section in res_ans_dict}
+
+    return jsonify(serializable_response), 200
 
 
 if __name__ == "__main__":
