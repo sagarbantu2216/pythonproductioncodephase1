@@ -418,15 +418,17 @@ def generate_prompt(problem: str) -> str:
     print("4. Entered into generate_prompt function")
     print(f"Problem Received: {problem}")
     return f"""
-    Given the medical problem: "{problem}", generate a JSON schema that includes the following attributes:
-    - `name`: Based on the type of problem (e.g., DiseaseDisorderMention, LabMention, etc.)
-    - `sectionName`: A relevant section name such as "History of Present Illness" or "Past Medical History".
-    - `sectionOid`: A unique OID for the section, such as "2.16.840.1.113883.10.20.22.2.20".
+    Given the medical problem: "{problem}", generate a JSON schema that replicates the structure of the following example, 
+    but with new, relevant values based on the input. Do not repeat the example values; 
+    instead, generate appropriate content while keeping the structure consistent.
+    - `name`: Based on the type of problem (e.g.,DiseaseDisorderMention,LabMention,MedicationMention,ProcedureMention,SignSymptomMention,SectionHeader,AnatomicalSiteMention,EntityMention,MedicalDeviceMention,BacteriumMention,GeneMention)
+    - `sectionName`: A relevant section name with character offsets, for example, ["Problem List", 0, 92], depending on the input you are receiving.
+    - `sectionOid`: A unique OID for the section, can you please generate a unique OID based on the section name according to HL7 CDA which is a part of CCD? if it is not applicable, you can use 'SIMPLE_SEGMENT'.
     - `sectionOffset`: A simulated character offset range for the section.
     - `sentence`: A simulated character offset range for the sentence.
     - `extendedSentence`: A simulated character offset range for the extended sentence.
     - `text`: The text of the problem with simulated character offsets.
-    - `attributes`: A set of attributes such as `derivedGeneric`, `polarity`, `relTime`, `date`, `status`, etc., with dynamically generated values relevant to the problem.
+    - `attributes`: A set of attributes such as `fasting`, `derivedGeneric`, `polarity`, `relTime`,`family member`, `confidence`,`secondary`, `date`, `status`, etc., with dynamically generated values relevant to the problem.
     - `umlsConcept`: A list of concepts with attributes like `codingScheme`, `cui`, `tui`, `code`, and `preferredText` that relate to the problem.
 
     Use the structure of the following JSON schema as an example and fill in the values accordingly:
@@ -439,11 +441,15 @@ def generate_prompt(problem: str) -> str:
         "extendedSentence": [start_offset, end_offset],  // Extended offset range
         "text": ["{problem}", start_offset, end_offset],  // Problem text
         "attributes": {{
+            "fasting": "true or false",  // Indicates if the patient was fasting
             "derivedGeneric": "1 or 0",  // Indicates if the term is generic
             "polarity": "positive or negated",  // Polarity of the mention
-            "relTime": "current status, history status",  // Time relation of the problem
+            "relTime": "current status, history status, family history status, probably status",  // Time relation of the problem
+            "familyMember": "family member if applicable",  // Family member associated with the problem
+            "confidence": "0 or 1",  // Confidence level of the problem
+            "secondary": "true or false",  // Indicates if the problem is secondary
             "date": "MM-DD-YYYY",  // Date associated with the problem
-            "status": "stable, unstable",  // Status of the problem
+            "status": "stable, unstable, controlled, not controlled, deteriorating, getting worse, improving, resolved, resolving, unresolved, worsening, well-controlled, unchanges, chronic, diminished, new diagnosis",  // Status of the problem
             "medDosage": "medication dosage if applicable",  // Medication dosage
             "medForm": "medication form if applicable",  // Medication form
             "medFrequencyNumber": "frequency number if applicable",  // Medication frequency number
@@ -489,14 +495,14 @@ def format_problem_with_schema(problem: str) -> dict:
         {"role": "system", "content": system_prompt3},
         {"role": "user", "content": prompt}
     ]
-    # openai_api_key = os.getenv('OPENAI_API_KEY')
-    # llm3 = ChatOpenAI(model="gpt-4o",
-    #                   api_key=openai_api_key,
-    #                   temperature=0,
-    #                   max_tokens=4000)  
-    from langchain_groq import ChatGroq
-    groq_api_key = os.getenv("GROQ_API_KEY")
-    llm3 = ChatGroq(groq_api_key=groq_api_key, model='Llama3-70b-8192', temperature=0.1, max_tokens=8000) # groq model
+    openai_api_key = os.getenv('OPENAI_API_KEY')
+    llm3 = ChatOpenAI(model="gpt-4o",
+                      api_key=openai_api_key,
+                      temperature=0,
+                      max_tokens=4000)  
+    # from langchain_groq import ChatGroq
+    # groq_api_key = os.getenv("GROQ_API_KEY")
+    # llm3 = ChatGroq(groq_api_key=groq_api_key, model='Llama3-70b-8192', temperature=0.1, max_tokens=8000) # groq model
 
     response = llm3.invoke(chat_messages)
     return response
